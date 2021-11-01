@@ -10,6 +10,9 @@ using HandyControl.Tools;
 using HandyControl.Tools.Extension;
 using HandyControl.Tools.Interop;
 using HandyControl.Themes;
+using System.Windows.Controls;
+using static HandyControl.Tools.Interop.InteropValues;
+using System.Runtime.CompilerServices;
 #if NET40
 using Microsoft.Windows.Shell;
 using Standard;
@@ -23,8 +26,9 @@ namespace HandyControl.Controls
     public class Window : System.Windows.Window
     {
         #region fields
-
+        private const int HTMAXBUTTON = 9;
         private const string ElementNonClientArea = "PART_NonClientArea";
+        private const string ButtonMax = "ButtonMax";
 
         private bool _isFullScreen;
 
@@ -43,6 +47,8 @@ namespace HandyControl.Controls
         private ResizeMode _tempResizeMode;
 
         private UIElement _nonClientArea;
+
+        private Button _ButtonMax;
 
         #endregion
 
@@ -260,6 +266,7 @@ namespace HandyControl.Controls
             base.OnApplyTemplate();
 
             _nonClientArea = GetTemplateChild(ElementNonClientArea) as UIElement;
+            _ButtonMax = GetTemplateChild(ButtonMax) as Button;
         }
 
         #endregion
@@ -366,7 +373,22 @@ namespace HandyControl.Controls
 
             Marshal.StructureToPtr(mmi, lParam, true);
         }
+        [DllImport("user32.dll", EntryPoint = "GetWindowRect", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool _GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static RECT GetWindowRect(IntPtr hwnd)
+        {
+            RECT rc;
+            if (!_GetWindowRect(hwnd, out rc))
+            {
+                //HRESULT.ThrowLastError();
+            }
+
+            return rc;
+        }
+       
         private IntPtr HwndSourceHook(IntPtr hwnd, int msg, IntPtr wparam, IntPtr lparam, ref bool handled)
         {
             switch (msg)
@@ -379,16 +401,29 @@ namespace HandyControl.Controls
                     Padding = WindowState == WindowState.Maximized ? WindowHelper.WindowMaximizedPadding : _commonPadding;
                     break;
                 case InteropValues.WM_NCHITTEST:
-                    // for fixing #886
-                    // https://developercommunity.visualstudio.com/t/overflow-exception-in-windowchrome/167357
                     try
                     {
+                        // for fixing #886
+                        // https://developercommunity.visualstudio.com/t/overflow-exception-in-windowchrome/167357
                         _ = lparam.ToInt32();
+
+                        // Support Windows 11 SnapLayout
+                        int x = lparam.ToInt32() & 0xffff;
+                        int y = lparam.ToInt32() >> 16;
+                        var rect = new Rect(_ButtonMax.PointToScreen(new Point()), new Size(_ButtonMax.Width, _ButtonMax.Height));
+                        if (rect.Contains(new Point(x, y)))
+                        {
+                            handled = true;
+                        }
+                        return new IntPtr(HTMAXBUTTON);
                     }
                     catch (OverflowException)
                     {
                         handled = true;
                     }
+                    break;
+                case InteropValues.WM_NCLBUTTONDOWN:
+                    handled = true;
                     break;
             }
 
